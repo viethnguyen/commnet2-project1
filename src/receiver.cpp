@@ -2,6 +2,7 @@
 #include "newport.h"
 #include "message.h"
 #include <iostream>
+#include <stdio.h>
 using namespace std;
 
 //state of the receiver
@@ -11,7 +12,7 @@ const int RECEIVING_STATE = 1;
 /**
  * @param argv[1] receiving port number
  * 			argv[2] destination address
- * 			argv[3]
+ * 			argv[3] destination port number
  */
 int main(int argc, const char * argv[])
 {
@@ -36,31 +37,62 @@ try {
   my_tx_port->setRemoteAddress(dst_addr);
   my_tx_port->init();
   
-  Message *m;
-
+  Message *m = new Message();
+  char *filename;
   
   cout << "begin receiving..." <<endl;
   Packet *p;
+  int ackedSeqNum = 0;
   while (1)
   {
     p = my_port->receivePacket(); 
     if (p !=NULL)
     {  
     	switch(state){
-    	case WAITING_STATE:
-    		//TODO: if there is an init packet coming, ACK and change to RECEVING_STATE
+    	case WAITING_STATE:{
     		int seqNum = p->accessHeader()->getIntegerInfo(m->SEQNUM_POS);
+    		filename = p->getPayload();
     		Packet * ack_packet = m->make_ack_packet(seqNum);
+    		cout << "receiving a packet of seq num " << seqNum << " and filename is " << filename << endl;
+    		cout << "Beginning receiving file..." << endl;
+    		my_tx_port->sendPacket(ack_packet);
+    		remove("out.txt");
+    		state = RECEIVING_STATE;
     		break;
-    	case RECEIVING_STATE:
-    		//TODO: keeps receiving data packets and store into buffer. If end of file, close buffer and change to WAITING_STATE
 
+    	}
+    	case RECEIVING_STATE:{
+    		// Stop-and-wait scheme
+    		int seqNum = p->accessHeader()->getIntegerInfo(m->SEQNUM_POS);
+    		cout << "receiving a packet of seq num " << seqNum << endl;
+
+    		// special case, if being sent a seqnum = 0, which means the sender does not know
+    		// receiver DID receive it, so we send ack again
+    		if(seqNum == ackedSeqNum){
+    			Packet * ack_packet = m->make_ack_packet(seqNum);
+    			cout << "The sender does not know we DID receive packet! Resend ACK for him... " << endl;
+    			my_tx_port->sendPacket(ack_packet);
+    			break;
+    		}
+
+    		char *payload = p->getPayload();
+    		if(m->append_data_to_file("out.txt",payload,p->getPayloadSize())){//only when write to file success...
+    			ackedSeqNum = seqNum;
+    			Packet *ack_packet = m->make_ack_packet(seqNum);
+
+        		my_tx_port->sendPacket(ack_packet); //... we send ACK
+    		}
+
+    		bool isEOF = p->accessHeader()->getShortIntegerInfo(m->EOF_POS) != 0 ? true : false;
+    		cout << "isEOF? " << isEOF << endl;
+    		if(isEOF){
+    			cout << "Done receive file" <<endl;
+    		}
     		break;
     	}
-       int i = p->accessHeader()->getIntegerInfo(3);
-       cout << "receiving a packet of seq num " << i << "...sending ACK" << endl; 
-       hdr->setIntegerInfo(i,3);
-       my_tx_port->sendPacket(my_ack_packet);       
+    	default:
+    		break;
+    	}
     }
   } 
 } catch (const char *reason ) {

@@ -12,11 +12,14 @@ all:	sender receiver
 common.o : common.h common.cpp 
 	$(CC) $(CCOPTS) -c common.cpp
  
-sender:  sender.cpp common.o  
-	$(CC) $(CCOPTS) $(LIBS) common.o sender.cpp -o sender
+message.o: message.h message.cpp
+	$(CC) $(CCOPTS) -c message.cpp
+     
+sender:  sender.cpp common.o message.o 
+	$(CC) $(CCOPTS) $(LIBS) common.o message.o sender.cpp -o sender
 
-receiver: receiver.cpp common.o
-	$(CC) $(CCOPTS) $(LIBS) common.o receiver.cpp -o receiver
+receiver: receiver.cpp common.o message.o
+	$(CC) $(CCOPTS) $(LIBS) common.o message.o receiver.cpp -o receiver
 
 clean :
-	rm -f common.o sender receiver
+	rm -f common.o message.o sender receiver

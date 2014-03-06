@@ -2,12 +2,29 @@
 #include "newport.h"
 #include "message.h"
 #include <iostream>
+#include <fstream>
 using namespace std;
+
+//state of the sender
+const int IDLE_STATE = 0;
+const int SENDING_STATE = 1;
+
+char* read_all_bytes(const char *filename){
+
+	ifstream f1(filename);
+	f1.seekg(0, ios::end);
+	size_t len = f1.tellg();
+	char *ret = new char[len];
+	f1.seekg(0, ios::beg);
+	f1.read(ret, len);
+	f1.close();
+	return ret;
+}
 
 /**
  * @param: argv[1] destination host address
- * 			argv[2] destination port address
- * 			argv[3] listening port address
+ * 			argv[2] destination port number
+ * 			argv[3] listening port number
  * 			argv[4] filename
  */
 int main(int argc, const char * argv[])
@@ -41,10 +58,11 @@ int main(int argc, const char * argv[])
   hdr->setIntegerInfo(1,3);
 
   //init a file transfer session
-  Message *m;
-  Packet *init_packet = m->make_init_packet(argv[4]);
+  Message *m = new Message();
+  char *filename = (char *) argv[4];
+  Packet *init_packet = m->make_init_packet(filename);
  
-  //sending it
+
   my_port->sendPacket(init_packet);
   my_port->lastPkt_ = init_packet;
   cout << "Init packet is sent!" <<endl;
@@ -56,15 +74,42 @@ int main(int argc, const char * argv[])
   Packet *pAck;
   while (!my_port->isACKed()){
         pAck = my_rx_port->receivePacket();
+
         if (pAck!= NULL)
-	{
+        {
 	     my_port->setACKflag(true);
 	     my_port->timer_.stopTimer();
-             cout << "The last sent packet has been acknowledged." <<endl;
-    
-	}
+         cout << "OK. Now begin to transfer file..." <<endl;
+        }
   };  
     
+  //begining transfer
+   m->prepare_file_to_send(filename);
+   int np = m->get_number_of_packets();
+
+   //stop-and-wait scheme
+   for(int i = 1; i <= np; i++){
+	   Packet *data_packet = m->make_data_packet(i);
+	   my_port->sendPacket(data_packet);
+	   my_port->lastPkt_ = data_packet;
+	   cout << "Data packet seqnum " << i << " is sent!" << endl;
+	   my_port->setACKflag(false);
+	   //schedule retransmit
+	   my_port->timer_.startTimer(2.5);
+
+	   cout << "begin waiting for ACK ... " << endl;
+
+	   while(!my_port->isACKed()){
+		   pAck = my_rx_port->receivePacket();
+		   if(pAck !=  NULL)
+		   {
+			   my_port->setACKflag(true);
+			   my_port->timer_.stopTimer();
+			   cout << "Data packet seqnum " << i << "/ " << np << " is received successfully!" << endl;
+		   }
+	   }
+   }
+
  } catch (const char *reason ) {
     cerr << "Exception:" << reason << endl;
     exit(-1);
@@ -72,3 +117,5 @@ int main(int argc, const char * argv[])
 
  return 0;
 }
+
+
